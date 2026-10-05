@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>AR ผีเสื้อกับกุหลาบแดง • Hiro</title>
+<style>
+*{box-sizing:border-box}body{margin:0;overflow:hidden;font-family:system-ui,Tahoma,sans-serif;color:#fff;background:transparent}a-scene{position:fixed!important;inset:0}.hud{position:fixed;z-index:10;left:18px;right:18px;top:max(18px,env(safe-area-inset-top));pointer-events:none}.card{max-width:410px;padding:16px 20px;background:rgba(13,27,24,.82);border:1px solid #ffffff30;border-radius:20px;backdrop-filter:blur(12px)}.eyebrow{font-size:10px;letter-spacing:3px;color:#aaddad}h1{font-size:21px;margin:7px 0}p{font-size:13px;line-height:1.65;margin:4px 0;color:#d4e6dc}#status{color:#ffda92}.bottom{position:fixed;z-index:10;bottom:max(22px,env(safe-area-inset-bottom));left:16px;right:16px;display:flex;justify-content:center;gap:9px;flex-wrap:wrap}button{border:1px solid #ffffff45;border-radius:30px;padding:13px 19px;background:#17372f;color:white;font:600 14px system-ui;cursor:pointer}button:first-child{background:#ffe3dc;color:#642d35}button:disabled{opacity:.5;cursor:default}button:focus-visible,a:focus-visible{outline:3px solid #ffb55b;outline-offset:4px}.help{pointer-events:auto;color:#b8e7c7;font-size:12px}.arjs-loader{display:none}
+</style>
+<script>
+function dependencyError(){document.addEventListener('DOMContentLoaded',()=>{document.getElementById('status').textContent='โหลดไลบรารีไม่สำเร็จ กรุณาตรวจสอบอินเทอร์เน็ตแล้วรีเฟรช';});}
+</script>
+<script src="https://aframe.io/releases/1.6.0/aframe.min.js" onerror="dependencyError()"></script>
+<script src="https://raw.githack.com/AR-js-org/AR.js/3.4.7/aframe/build/aframe-ar.js" onerror="dependencyError()"></script>
+</head>
+<body>
+<div class="hud"><div class="card"><div class="eyebrow">HIRO · A LITTLE AR GARDEN</div><h1>ผีเสื้อกับกุหลาบแดง</h1><p id="status" role="status" aria-live="polite">กำลังเตรียมกล้อง…</p><p>ส่อง Hiro ให้เห็นกรอบสีดำครบทั้ง 4 ด้าน</p><a class="help" href="https://raw.githack.com/AR-js-org/AR.js/master/data/images/hiro.png" target="_blank" rel="noopener">เปิดภาพ Hiro สำหรับพิมพ์ / แสดงบนอีกจอ ↗</a></div></div>
+<div class="bottom"><button id="bloom" disabled>🌹 เริ่มบานใหม่</button><button id="pause" disabled>หยุดแอนิเมชัน</button></div>
+<script>
+/* โมเดลทั้งหมดสร้างด้วย THREE ที่มากับ A-Frame ไม่ต้องดาวน์โหลดไฟล์โมเดล
+   เปิดผ่าน HTTPS หรือ http://localhost พร้อมอินเทอร์เน็ต
+   ?preview=1 เป็นโหมดดูโมเดลโดยไม่เปิดกล้อง ใช้ตรวจสอบภาพเท่านั้น */
+if(window.AFRAME){
+ const THREE=AFRAME.THREE;
+ const status=document.getElementById('status');
+ const bloomButton=document.getElementById('bloom');
+ const pauseButton=document.getElementById('pause');
+ const preview=new URLSearchParams(location.search).get('preview')==='1';
+ const clamp=(x)=>Math.max(0,Math.min(1,x));
+ const ease=(x)=>{x=clamp(x);return x*x*(3-2*x);};
+ AFRAME.registerComponent('rose-garden',{
+  init(){
+   this.clock=0;this.bloomClock=0;this.found=preview;this.paused=false;this.petals=[];this.wings=[];
+   this.root=new THREE.Group();this.el.setObject3D('garden',this.root);
+   const mat=(color,extra={})=>new THREE.MeshStandardMaterial({color,roughness:.64,metalness:0,side:THREE.DoubleSide,...extra});
+   const green=mat('#25783e'),dark=mat('#254136'),black=mat('#211923');
+   const sphere=(parent,r,sx,sy,sz,x,y,z,material)=>{const m=new THREE.Mesh(new THREE.SphereGeometry(r,20,14),material);m.scale.set(sx,sy,sz);m.position.set(x,y,z);parent.add(m);return m;};
+   const tube=(parent,points,r,material)=>{const c=new THREE.CatmullRomCurve3(points.map(p=>new THREE.Vector3(...p)));const m=new THREE.Mesh(new THREE.TubeGeometry(c,20,r,7,false),material);parent.add(m);return m;};
+   // พื้นสวนเล็ก ๆ วางราบบน marker ซึ่งอยู่บนระนาบ XZ
+   const bed=new THREE.Mesh(new THREE.CylinderGeometry(.53,.57,.07,48),mat('#264b39'));bed.position.y=.025;this.root.add(bed);
+   const rim=new THREE.Mesh(new THREE.TorusGeometry(.53,.012,8,64),mat('#b9bc82'));rim.rotation.x=Math.PI/2;rim.position.y=.066;this.root.add(rim);
+   tube(this.root,[[0,.06,0],[-.045,.46,.01],[.025,.87,0],[0,1.18,0]],.024,green);
+   // ใบปลายแหลม มีเส้นกลางใบ
+   const leafShape=new THREE.Shape();leafShape.moveTo(0,0);leafShape.bezierCurveTo(.2,.05,.23,.3,0,.43);leafShape.bezierCurveTo(-.23,.3,-.2,.05,0,0);
+   for(let i=0;i<3;i++){
+    const pivot=new THREE.Group();pivot.position.set(0,.3+i*.23,0);pivot.rotation.set(-.35,i*2.5,.7*(i%2?1:-1));this.root.add(pivot);
+    const leaf=new THREE.Mesh(new THREE.ShapeGeometry(leafShape,20),green);pivot.add(leaf);
+    tube(pivot,[[0,0,.005],[0,.2,.025],[0,.42,.005]],.005,mat('#70a557'));
+   }
+   const head=new THREE.Group();head.position.y=1.17;this.root.add(head);
+   sphere(head,.1,1,.7,1,0,-.015,0,green);
+   // กลีบโค้งแบบ parametric: โคนแคบ ปลายมน และขอบม้วน
+   function petalGeometry(length,width){
+    const positions=[],uv=[],indices=[],rows=18,cols=16;
+    for(let j=0;j<=rows;j++)for(let i=0;i<=cols;i++){
+     const v=j/rows,u=2*i/cols-1;
+     const breadth=width*Math.pow(Math.sin(Math.PI*v),.65);
+     positions.push(u*breadth,length*v-.035*u*u*v,.14*Math.sin(Math.PI*v/2)+.055*u*u*Math.sin(Math.PI*v)-.045*Math.pow(v,6));uv.push(i/cols,v);
+    }
+    for(let j=0;j<rows;j++)for(let i=0;i<cols;i++){const a=j*(cols+1)+i,b=a+cols+1;indices.push(a,b,a+1,b,b+1,a+1);}
+    const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));geo.setAttribute('uv',new THREE.Float32BufferAttribute(uv,2));geo.setIndex(indices);geo.computeVertexNormals();return geo;
+   }
+   const colors=['#bd1236','#d8173d','#e92344','#ef3650'];
+   for(let layer=0;layer<4;layer++){
+    const count=8-layer;
+    const geo=petalGeometry(.43-layer*.055,.19-layer*.029);
+    const material=mat(colors[layer]);
+    for(let i=0;i<count;i++){
+     const turn=new THREE.Group();turn.rotation.y=i/count*Math.PI*2+layer*.48;head.add(turn);
+     const hinge=new THREE.Group();hinge.position.set(0,layer*.043,.065-layer*.012);turn.add(hinge);
+     const petal=new THREE.Mesh(geo,material);hinge.add(petal);
+     this.petals.push({hinge,layer,closed:-.25+layer*.045,open:1.19-layer*.255});
+    }
+   }
+   // กลีบกลางยังห่อเล็กน้อยเพื่อคงรูปดอกกุหลาบเมื่อบานเต็มที่
+   for(let i=0;i<3;i++){
+    const m=new THREE.Mesh(petalGeometry(.19,.057),mat('#ac1230'));m.position.y=.145;m.rotation.y=i*2.1;m.rotation.x=-.18;head.add(m);
+   }
+   // ผีเสื้อหนึ่งตัว: ลำตัว หนวด และปีกซ้าย/ขวาอย่างละสองแฉก
+   const butterfly=new THREE.Group();this.butterfly=butterfly;this.root.add(butterfly);
+   sphere(butterfly,.045,.6,.7,2.8,0,0,0,black);sphere(butterfly,.036,1,1,1,0,.012,-.13,black);
+   for(const side of [-1,1]){
+    tube(butterfly,[[side*.016,.025,-.15],[side*.038,.066,-.195],[side*.072,.06,-.215]],.004,black);
+    sphere(butterfly,.009,1,1,1,side*.072,.06,-.215,black);
+    const wing=new THREE.Group();butterfly.add(wing);this.wings.push({wing,side});
+    const shape=new THREE.Shape();shape.moveTo(.008,-.025);shape.bezierCurveTo(.07,-.21,.25,-.27,.29,-.15);shape.bezierCurveTo(.32,-.065,.19,.005,.13,.025);shape.bezierCurveTo(.3,.07,.21,.24,.12,.18);shape.bezierCurveTo(.06,.16,.025,.075,.008,-.025);
+    const geo=new THREE.ShapeGeometry(shape,32);geo.rotateX(Math.PI/2);
+    const outer=new THREE.Mesh(geo,black);outer.scale.x=side;wing.add(outer);
+    const inside=new THREE.Mesh(geo,mat('#ff9c31',{roughness:.48}));inside.scale.set(side*.87,1,.85);inside.position.set(side*.014,.003,0);wing.add(inside);
+    // ลายเส้นและจุดบนปีก
+    for(const end of [[.24,-.15],[.21,-.07],[.18,.12],[.12,.15]])tube(wing,[[side*.02,.008,0],[side*.09,.009,end[1]*.45],[side*end[0],.009,end[1]]],.0035,black);
+    for(const p of [[.235,-.15],[.25,-.11],[.18,-.2],[.18,.12],[.145,.16]])sphere(wing,.012,1,.22,1,side*p[0],.014,p[1],mat('#fff1c6'));
+   }
+   this.onFound=()=>{this.found=true;this.updateStatus();};
+   this.onLost=()=>{this.found=false;this.updateStatus();};
+   this.el.addEventListener('markerFound',this.onFound);this.el.addEventListener('markerLost',this.onLost);
+   this.onBloom=()=>{this.bloomClock=0;this.clock=0;this.paused=false;this.updateStatus();};
+   this.onPause=()=>{this.paused=!this.paused;this.updateStatus();};
+   bloomButton.addEventListener('click',this.onBloom);pauseButton.addEventListener('click',this.onPause);
+   this.updateStatus();this.animate(0);
+  },
+  updateStatus(){
+   bloomButton.disabled=!this.found;pauseButton.disabled=!this.found;
+   pauseButton.textContent=this.paused?'เล่นแอนิเมชันต่อ':'หยุดแอนิเมชัน';
+   status.textContent=this.found?(this.paused?'หยุดแอนิเมชันชั่วคราว':(preview?'ดูตัวอย่าง 3 มิติ • ไม่ได้เปิดกล้อง':'พบ Hiro แล้ว • กุหลาบกำลังผลิบาน')):'พร้อมแล้ว • ส่องกล้องไปที่ Hiro marker';
+  },
+  animate(t){
+   for(const p of this.petals){const progress=ease((this.bloomClock-p.layer*.7)/5.5);p.hinge.rotation.x=p.closed+(p.open-p.closed)*progress;}
+   // 18 วินาทีต่อรอบ: บินวน → เข้าหาดอก → ตอม → บินออก
+   const phase=t%18;
+   const visit=ease((phase-5)/3)*(1-ease((phase-12)/3));
+   const angle=t*.77;
+   const r=.8*(1-visit)+.105*visit;
+   const y=1.65+.14*Math.sin(t*1.5)*(1-visit)-.1*visit+.022*Math.sin(t*5);
+   this.butterfly.position.set(Math.cos(angle)*r,y,Math.sin(angle)*r);
+   // เมื่อเข้าตอม ให้หันหัวไปที่ใจกลางดอก
+   const orbitYaw=-angle-Math.PI;
+   this.butterfly.rotation.set(-.12*visit,orbitYaw-visit*Math.PI/2,.10*Math.sin(t*2)*(1-visit));
+   const flap=.18+Math.sin(t*(visit>.8?18:32))*.85;
+   for(const {wing,side} of this.wings)wing.rotation.z=side*flap;
+  },
+  tick(time,delta){
+   if(!this.found||this.paused||document.hidden)return;
+   const dt=Math.min((delta||0)/1000,.05);this.clock+=dt;this.bloomClock+=dt;this.animate(this.clock);
+  },
+  remove(){
+   bloomButton.removeEventListener('click',this.onBloom);pauseButton.removeEventListener('click',this.onPause);
+   this.el.removeEventListener('markerFound',this.onFound);this.el.removeEventListener('markerLost',this.onLost);
+   const geometries=new Set(),materials=new Set();this.root.traverse(o=>{if(o.geometry)geometries.add(o.geometry);if(o.material)materials.add(o.material);});geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());this.el.removeObject3D('garden');
+  }
+ });
+ // ใช้ scene แยกสำหรับ preview เพื่อไม่ขอเปิดกล้องในโหมดนั้น
+ const scene=document.createElement('a-scene');
+ scene.setAttribute('embedded','');scene.setAttribute('vr-mode-ui','enabled: false');scene.setAttribute('device-orientation-permission-ui','enabled: false');
+ scene.setAttribute('renderer','antialias: true; alpha: true; colorManagement: true;');
+ if(!preview)scene.setAttribute('arjs','sourceType: webcam; debugUIEnabled: false; trackingMethod: best;');
+ else scene.setAttribute('background','color: #142821');
+ scene.innerHTML='<a-entity light="type: ambient; color: #fff0e2; intensity: 1.3"></a-entity><a-entity light="type: directional; color: #fff3de; intensity: 2.0" position="-2 4 3"></a-entity><a-entity light="type: directional; color: #bedbff; intensity: 0.7" position="2 2 -2"></a-entity>'+(preview?'<a-entity rose-garden rotation="0 20 0"></a-entity><a-entity camera position="0 2.4 3.7" rotation="-20 0 0" look-controls="enabled: false" wasd-controls="enabled: false"></a-entity>':'<a-marker preset="hiro" rose-garden><\/a-marker><a-entity camera><\/a-entity>');
+ window.addEventListener('camera-error',()=>{status.textContent='เปิดกล้องไม่ได้ • อนุญาตสิทธิ์กล้อง ตรวจสอบ HTTPS แล้วรีเฟรช';});
+ document.body.appendChild(scene);
+ if(!preview&&!window.isSecureContext)status.textContent='กรุณาเปิดผ่าน HTTPS หรือ localhost เพื่อใช้กล้อง';
+}
+</script>
+</body>
+</html>
